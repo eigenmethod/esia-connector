@@ -34,7 +34,7 @@ To install ESIA-connector, simply:
 
 .. code-block:: bash
 
-    $ pip install git+https://github.com/saprun/esia-connector.git@master
+    $ pip install esia-connector
 
 
 Documentation
