@@ -8,7 +8,7 @@ from esia_connector.client import EsiaSettings, EsiaAuth, EsiaPersonInformationC
 def get_test_file(name):
     return os.path.join(os.path.dirname(__file__), 'res', name)
 
-TEST_SETTINGS = EsiaSettings(esia_client_id='SEPCAP',
+TEST_SETTINGS = EsiaSettings(esia_client_id='SAPRUN',
                              redirect_uri='http://localhost:5000/info',
                              certificate_file=get_test_file('test.crt'),
                              private_key_file=get_test_file('test.key'),

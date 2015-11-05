@@ -34,7 +34,7 @@ To install ESIA-connector, simply:
 
 .. code-block:: bash
 
-    $ pip install git+https://github.com/<user>/esia-connector.git@master
+    $ pip install git+https://github.com/saprun/esia-connector.git@master
 
 
 Documentation
@@ -43,15 +43,15 @@ Documentation
 For more information see examples/flask_app.py - full featured integration example built on top flask
 web framework. To run example flask app without library install make next steps:
 
-1) Generate you key and certificate and replace with em files in examples/res/. Create your system at ESIA and
-upload you certificate to ESIA server. Modify examples/flask_app.py - specify your system id as esia_client_id.
+1) Generate you key and certificate and replace with em files in examples/res/. Create your system at ESIA and upload you certificate to ESIA server. Modify examples/flask_app.py - specify your system id as esia_client_id.
 
 2) Run in shell these commands:
 
 .. code-block:: bash
 
-    $ pip install flask requests PyJWT pytz
-    $ git clone <repo_url>
+    $ git clone git@github.com:saprun/esia-connector.git
+    $ cd esia_connector
+    $ pip install -r requirements-dev.txt
     $ cd esia_connector/examples
     $ python flask_app.py
 
@@ -64,14 +64,7 @@ Contribute
 ----------
 
 #. Check for open issues or open a fresh issue to start a discussion around a feature idea or a bug.
-#. Fork this repository on GitHub to start making your changes. Please note, that for development you have
-to install requirements manually using:
-
-.. code-block:: bash
-
-    $ pip install -r requirements-dev.txt
-
-command in cloned repository directory.
+#. Fork this repository on GitHub to start making your changes. Please note, that for development you have to install requirements manually using: pip install -r requirements-dev.txt command in cloned repository directory.
 
 #. Write a test which shows that the bug was fixed or that the feature works as expected.
 #. Send a pull request.
