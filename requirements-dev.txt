@@ -1,0 +1,5 @@
+Flask==0.10.1
+httpretty==0.8.10
+PyJWT==1.4.0
+pytz==2015.7
+requests==2.8.1
