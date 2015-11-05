@@ -49,8 +49,9 @@ web framework. To run example flask app without library install make next steps:
 
 .. code-block:: bash
 
-    $ pip install flask requests PyJWT pytz
     $ git clone git@github.com:saprun/esia-connector.git
+    $ cd esia_connector
+    $ pip install -r requirements-dev.txt
     $ cd esia_connector/examples
     $ python flask_app.py
 
