@@ -13,12 +13,17 @@ classes = """
 """
 classifiers = [s.strip() for s in classes.split('\n') if s]
 
+long_description = """
+ESIA-Connector is an integration library for authenticating users using Russian Federation
+official authentication services, provided by ESIA (aka "gosuslugi": http://esia.gosuslugi.ru),
+written in python 3.
+"""
 
 setup(
     name='esia-connector',
     version='0.1',
     description='ESIA integration library',
-    long_description=open('README.rst').read(),
+    long_description=long_description,
     author='SAPRUN Team',
     author_email='andrey.beliak@saprun.com',
     url='https://github.com/saprun/esia-connector',
