@@ -8,9 +8,13 @@ import pytz
 
 def sign_params(params, certificate_file, private_key_file):
     """
-    Подписывает параметры запроса добавляя параметр client_secret
-    :param dict params: параметры
-    :return: параметры с параметром-подписью
+    Signs params adding client_secret key, containing signature based on `scope`, `timestamp`, `client_id` and `state`
+    keys values.
+    :param dict params: requests parameters
+    :param str certificate_file: path to certificate file
+    :param str private_key_file: path to private key file
+    :return:signed request parameters
+    :rtype: dict
     """
     plaintext = params.get('scope', '') + params.get('timestamp', '') + params.get('client_id', '') + params.get('state', '')
 
