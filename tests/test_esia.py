@@ -3,16 +3,17 @@ import copy
 import base64
 import datetime
 import tempfile
+from calendar import timegm
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import patch, create_autospec
 
 import httpretty
+import jwt
 import pytz
 
-from esia_connector.client import EsiaSettings, EsiaAuth, EsiaPersonInformationConnector
-from esia_connector.exceptions import IncorrectJsonError, HttpError
-from esia_connector.utils import get_timestamp, sign_params
-
+from esia_connector.client import EsiaSettings, EsiaAuth, EsiaInformationConnector
+from esia_connector.exceptions import IncorrectJsonError, HttpError, IncorrectMarkerError
+from esia_connector.utils import get_timestamp, sign_params, make_request
 from tests.utils import SameDict
 
 
@@ -98,6 +99,34 @@ class SignParamsTests(TestCase):
         self.assertEqual(res, 0, "Signature verification failed!")
 
 
+class MakeRequestTests(TestCase):
+    def setUp(self):
+        self.url = "https://esia.gosuslugi.ru/some/url"
+
+    @httpretty.activate
+    def test_ok(self):
+        httpretty.register_uri(method=httpretty.POST,
+                               uri=self.url,
+                               body=b'{"correct_json": true}')
+        result = make_request(url=self.url, method='POST')
+        expected_result = {'correct_json': True}
+        self.assertDictEqual(result, expected_result)
+
+    @httpretty.activate
+    def test_http_error(self):
+        httpretty.register_uri(method=httpretty.GET,
+                               uri=self.url,
+                               status=400)
+        self.assertRaises(HttpError, make_request, url=self.url)
+
+    @httpretty.activate
+    def test_not_valid_json(self):
+        httpretty.register_uri(method=httpretty.GET,
+                               uri=self.url,
+                               body=b':( :(')
+        self.assertRaises(IncorrectJsonError, make_request, url=self.url)
+
+
 class EsiaAuthConnectorTests(TestCase):
 
     def setUp(self):
@@ -177,23 +206,23 @@ class EsiaAuthConnectorTests(TestCase):
                                                  certificate_file=TEST_SETTINGS.certificate_file,
                                                  private_key_file=TEST_SETTINGS.private_key_file)
 
-    @httpretty.activate
+    @patch('esia_connector.client.make_request', autospec=True)
     @patch('esia_connector.client.sign_params', autospec=True)
     @patch('esia_connector.client.get_timestamp', autospec=True)
-    def test_complete_authorization_ok(self, get_timestamp_mock, sign_params_mock):
+    def test_complete_authorization_ok_without_validation(self, get_timestamp_mock, sign_params_mock, make_request_mock):
 
-        expected_response_data = b'''
-        {
-           "state":"b7062082-5493-409b-b51b-c7f788136a1c",
-           "token_type":"Bearer",
-           "expires_in":3600,
-           "refresh_token":"bb35e3ef-7da7-4300-bddb-4e0d4972345b",
-           "id_token":"eyJhbGciOiJSUzI1NiIsInNidCI6ImlkIiwidHlwIjoiSldUIiwidmVyIjowfQ.eyJhdXRoX3RpbWUiOjE0NDY0OTk3NTY2MDMsImV4cCI6MTQ0NjUxMDcwNCwic3ViIjoxMDAwMzIzMDMxLCJhdWQiOiJTRVBDQVAiLCJpc3MiOiJodHRwOlwvXC9lc2lhLmdvc3VzbHVnaS5ydVwvIiwibmJmIjoxNDQ2NDk5OTA0LCJ1cm46ZXNpYTpzaWQiOiIwNDYzNmM1NWVjYWFhMmNiNzg0Yzk2OGZmMmMzMTg1OWY4NWMzYmYzYjJjZTFhMjgzMzRiOWFiMjhjNzMyOTc4IiwidXJuOmVzaWE6c2JqIjp7InVybjplc2lhOnNiajpuYW0iOiJPSUQuMTAwMDMyMzAzMSIsInVybjplc2lhOnNiajpvaWQiOjEwMDAzMjMwMzEsInVybjplc2lhOnNiajp0eXAiOiJQIn0sInVybjplc2lhOmFtZCI6IlBXRCIsImlhdCI6MTQ0NjQ5OTkwNCwiYW1yIjoiUFdEIn0.S1pC369DhwQJWwPyFXlfEtjuCOwpRs9wASQQSgIKuX80-WujS-IEcHWXE8VKXaFjsdqXLxQEWsZI7DpewiNgv4osbkS7cw_hZWfm6v9Md5i_SW4LJgLqQRBk21GCVzzxlfpzwaCQ9w7NlwIusOApY53R7cabrykz22wg2LVSEaWM7Z1svbi4HsKIK03nHjP83xa6S_-XbJW-pCNcdYYXhvV2JW0p_H2vdxHPTlNIcx37rrxQrbgOACVwAh108XeJvBKh_4fLAb65XySIP14pyD242suKZV7JzW_r7OzffxCMm2j6g09a4r5X7XZFpECqRhF5J0pM8rgzuSO7TCT3_Q","access_token":"eyJhbGciOiJSUzI1NiIsInNidCI6ImFjY2VzcyIsInR5cCI6IkpXVCIsInZlciI6MX0.eyJleHAiOjE0NDY1MDM1MDQsInNjb3BlIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcL3Vzcl9pbmY_b2lkPTEwMDAzMjMwMzEgb3BlbmlkIiwiaXNzIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcLyIsIm5iZiI6MTQ0NjQ5OTkwNCwidXJuOmVzaWE6c2lkIjoiMDQ2MzZjNTVlY2FhYTJjYjc4NGM5NjhmZjJjMzE4NTlmODVjM2JmM2IyY2UxYTI4MzM0YjlhYjI4YzczMjk3OCIsInVybjplc2lhOnNial9pZCI6MTAwMDMyMzAzMSwiY2xpZW50X2lkIjoiU0VQQ0FQIiwiaWF0IjoxNDQ2NDk5OTA0fQ.LYBJTAj1mOI6Ldq7HInyi8IBN1o37McL9b8Z1b6GukaYliPNPNAZ6TVxpdn4BGdFuDtbNsKLe7bJvA0KHkVbKxNE73ZrLaI8mK9uOYVdgYxyOhKrzJ3pZee3Tzu19itTqdBLS_IRLjXj3jX4HLRCIRey09lS4AoYplB6GnZQX39XgPKNFSkP059ImA6tX-MJfQ_ZnbCdcIpm_i6YG6M1qbg4S9f1ArksDtuS6gzW7Ody-AAI31lDWXScycQDZ49TRNbJ23F2wY5Ws-bZkbKzUUF2JdokEgPJuWLw7GAX3IwUOrleVA57rR7Oc8P29xBt0RjFr57NfLn8TmFoziWyZw"
-        }'''
+        expected_oid = 1000323031
+        expected_token = 'eyJhbGciOiJSUzI1NiIsInNidCI6ImFjY2VzcyIsInR5cCI6IkpXVCIsInZlciI6MX0.eyJleHAiOjE0NDY1MDM1MDQsInNjb3BlIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcL3Vzcl9pbmY_b2lkPTEwMDAzMjMwMzEgb3BlbmlkIiwiaXNzIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcLyIsIm5iZiI6MTQ0NjQ5OTkwNCwidXJuOmVzaWE6c2lkIjoiMDQ2MzZjNTVlY2FhYTJjYjc4NGM5NjhmZjJjMzE4NTlmODVjM2JmM2IyY2UxYTI4MzM0YjlhYjI4YzczMjk3OCIsInVybjplc2lhOnNial9pZCI6MTAwMDMyMzAzMSwiY2xpZW50X2lkIjoiU0VQQ0FQIiwiaWF0IjoxNDQ2NDk5OTA0fQ.LYBJTAj1mOI6Ldq7HInyi8IBN1o37McL9b8Z1b6GukaYliPNPNAZ6TVxpdn4BGdFuDtbNsKLe7bJvA0KHkVbKxNE73ZrLaI8mK9uOYVdgYxyOhKrzJ3pZee3Tzu19itTqdBLS_IRLjXj3jX4HLRCIRey09lS4AoYplB6GnZQX39XgPKNFSkP059ImA6tX-MJfQ_ZnbCdcIpm_i6YG6M1qbg4S9f1ArksDtuS6gzW7Ody-AAI31lDWXScycQDZ49TRNbJ23F2wY5Ws-bZkbKzUUF2JdokEgPJuWLw7GAX3IwUOrleVA57rR7Oc8P29xBt0RjFr57NfLn8TmFoziWyZw'
 
-        httpretty.register_uri(method=httpretty.POST,
-                               uri="%s%s" % (TEST_SETTINGS.esia_service_url, EsiaAuth._TOKEN_EXCHANGE_URL),
-                               body=expected_response_data)
+        expected_response_data = {
+            "state": "b7062082-5493-409b-b51b-c7f788136a1c",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "bb35e3ef-7da7-4300-bddb-4e0d4972345b",
+            "id_token": "TOKENDATA",
+            "access_token": expected_token,
+        }
+        make_request_mock.return_value = expected_response_data
 
         expected_timestamp = '2015.11.02 09:37:16 +0000'
 
@@ -217,27 +246,187 @@ class EsiaAuthConnectorTests(TestCase):
 
         sign_params_mock.return_value = signed_params
 
-        oid, token, = self.esia_auth.complete_authorization(code, state)
+        esia_auth = EsiaAuth(TEST_SETTINGS)
+        parse_token_mock = create_autospec(esia_auth._parse_token)
+        parse_token_mock.return_value = {'urn:esia:sbj': {'urn:esia:sbj:oid': expected_oid}}
+        esia_auth._parse_token = parse_token_mock
+        validate_token_mock = create_autospec(esia_auth._validate_token)
+        esia_auth._validate_token = validate_token_mock
 
-        expected_oid = 1000323031
-        expected_token = 'eyJhbGciOiJSUzI1NiIsInNidCI6ImFjY2VzcyIsInR5cCI6IkpXVCIsInZlciI6MX0.eyJleHAiOjE0NDY1MDM1MDQsInNjb3BlIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcL3Vzcl9pbmY_b2lkPTEwMDAzMjMwMzEgb3BlbmlkIiwiaXNzIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcLyIsIm5iZiI6MTQ0NjQ5OTkwNCwidXJuOmVzaWE6c2lkIjoiMDQ2MzZjNTVlY2FhYTJjYjc4NGM5NjhmZjJjMzE4NTlmODVjM2JmM2IyY2UxYTI4MzM0YjlhYjI4YzczMjk3OCIsInVybjplc2lhOnNial9pZCI6MTAwMDMyMzAzMSwiY2xpZW50X2lkIjoiU0VQQ0FQIiwiaWF0IjoxNDQ2NDk5OTA0fQ.LYBJTAj1mOI6Ldq7HInyi8IBN1o37McL9b8Z1b6GukaYliPNPNAZ6TVxpdn4BGdFuDtbNsKLe7bJvA0KHkVbKxNE73ZrLaI8mK9uOYVdgYxyOhKrzJ3pZee3Tzu19itTqdBLS_IRLjXj3jX4HLRCIRey09lS4AoYplB6GnZQX39XgPKNFSkP059ImA6tX-MJfQ_ZnbCdcIpm_i6YG6M1qbg4S9f1ArksDtuS6gzW7Ody-AAI31lDWXScycQDZ49TRNbJ23F2wY5Ws-bZkbKzUUF2JdokEgPJuWLw7GAX3IwUOrleVA57rR7Oc8P29xBt0RjFr57NfLn8TmFoziWyZw'
-        self.assertEqual(oid, expected_oid)
-        self.assertEqual(token, expected_token)
+        result = esia_auth.complete_authorization(code, state, validate_token=False)
+
+        self.assertIsInstance(result, EsiaInformationConnector)
+        self.assertEqual(result.oid, expected_oid)
+        self.assertEqual(result.token, expected_token)
+        self.assertEqual(result.settings, esia_auth.settings)
 
         get_timestamp_mock.assert_called_once_with()
         sign_params_mock.assert_called_once_with(SameDict(unsigned_params),
                                                  certificate_file=TEST_SETTINGS.certificate_file,
                                                  private_key_file=TEST_SETTINGS.private_key_file)
 
+        make_request_mock.assert_called_once_with(url="{0}{1}".format(TEST_SETTINGS.esia_service_url,
+                                                                      EsiaAuth._TOKEN_EXCHANGE_URL),
+                                                  method='POST',
+                                                  data=signed_params)
+        parse_token_mock.assert_called_once_with('TOKENDATA')
+        self.assertFalse(validate_token_mock.called)
 
-class EsiaPersonInformationConnectorTests(TestCase):
+    @patch('esia_connector.client.make_request', autospec=True)
+    @patch('esia_connector.client.sign_params', autospec=True)
+    @patch('esia_connector.client.get_timestamp', autospec=True)
+    def test_complete_authorization_ok_with_validation(self, get_timestamp_mock, sign_params_mock, make_request_mock):
+
+        expected_oid = 1000323031
+        expected_token = 'eyJhbGciOiJSUzI1NiIsInNidCI6ImFjY2VzcyIsInR5cCI6IkpXVCIsInZlciI6MX0.eyJleHAiOjE0NDY1MDM1MDQsInNjb3BlIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcL3Vzcl9pbmY_b2lkPTEwMDAzMjMwMzEgb3BlbmlkIiwiaXNzIjoiaHR0cDpcL1wvZXNpYS5nb3N1c2x1Z2kucnVcLyIsIm5iZiI6MTQ0NjQ5OTkwNCwidXJuOmVzaWE6c2lkIjoiMDQ2MzZjNTVlY2FhYTJjYjc4NGM5NjhmZjJjMzE4NTlmODVjM2JmM2IyY2UxYTI4MzM0YjlhYjI4YzczMjk3OCIsInVybjplc2lhOnNial9pZCI6MTAwMDMyMzAzMSwiY2xpZW50X2lkIjoiU0VQQ0FQIiwiaWF0IjoxNDQ2NDk5OTA0fQ.LYBJTAj1mOI6Ldq7HInyi8IBN1o37McL9b8Z1b6GukaYliPNPNAZ6TVxpdn4BGdFuDtbNsKLe7bJvA0KHkVbKxNE73ZrLaI8mK9uOYVdgYxyOhKrzJ3pZee3Tzu19itTqdBLS_IRLjXj3jX4HLRCIRey09lS4AoYplB6GnZQX39XgPKNFSkP059ImA6tX-MJfQ_ZnbCdcIpm_i6YG6M1qbg4S9f1ArksDtuS6gzW7Ody-AAI31lDWXScycQDZ49TRNbJ23F2wY5Ws-bZkbKzUUF2JdokEgPJuWLw7GAX3IwUOrleVA57rR7Oc8P29xBt0RjFr57NfLn8TmFoziWyZw'
+
+        expected_response_data = {
+            "state": "b7062082-5493-409b-b51b-c7f788136a1c",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "bb35e3ef-7da7-4300-bddb-4e0d4972345b",
+            "id_token": "TOKENDATA",
+            "access_token": expected_token,
+        }
+        make_request_mock.return_value = expected_response_data
+
+        expected_timestamp = '2015.11.02 09:37:16 +0000'
+
+        get_timestamp_mock.return_value = expected_timestamp
+
+        code = 'eyJhbGciOiJSUzI1NiIsInNidCI6ImF1dGhvcml6YXRpb25fY29kZSIsInR5cCI6IkpXVCIsInZlciI6MX0.eyJhdXRoX3RpbWUiOjE0NDY0OTk3NTY2MDMsImF1dGhfbXRoZCI6IlBXRCIsImV4cCI6MTQ0Nzk0NjMxOTU5NCwic2NvcGUiOiJodHRwOlwvXC9lc2lhLmdvc3VzbHVnaS5ydVwvdXNyX2luZj9vaWQ9MTAwMDMyMzAzMSBvcGVuaWQiLCJpc3MiOiJodHRwOlwvXC9lc2lhLmdvc3VzbHVnaS5ydVwvIiwibmJmIjoxNDQ2NDk5NzU5LCJ1cm46ZXNpYTpjbGllbnQ6c3RhdGUiOiJiNzA2MjA4Mi01NDkzLTQwOWItYjUxYi1jN2Y3ODgxMzZhMWMiLCJ1cm46ZXNpYTpzaWQiOiIwNDYzNmM1NWVjYWFhMmNiNzg0Yzk2OGZmMmMzMTg1OWY4NWMzYmYzYjJjZTFhMjgzMzRiOWFiMjhjNzMyOTc4IiwicGFyYW1zIjp7InJlbW90ZV9pcCI6Ijk1LjI3LjgzLjEzOCIsInVzZXJfYWdlbnQiOiJNb3ppbGxhXC81LjAgKFgxMTsgTGludXggeDg2XzY0KSBBcHBsZVdlYktpdFwvNTM3LjM2IChLSFRNTCwgbGlrZSBHZWNrbykgQ2hyb21lXC80Ni4wLjI0OTAuODAgU2FmYXJpXC81MzcuMzYifSwidXJuOmVzaWE6c2JqIjp7InVybjplc2lhOnNiajplaWQiOjc0Mzc4NDgsInVybjplc2lhOnNiajpuYW0iOiJPSUQuMTAwMDMyMzAzMSIsInVybjplc2lhOnNiajpvaWQiOjEwMDAzMjMwMzEsInVybjplc2lhOnNiajp0eXAiOiJQIn0sImNsaWVudF9pZCI6IlNFUENBUCIsImlhdCI6MTQ0NjQ5OTc1OX0.Usz6bANHcdRsx4Pg_eqbaNsa9NmpXpUasx5NBakV1crnwo-nEsau19a0mvMVNr6QrS8vqcPEgfQCUecBjxCrcOlVl2qKpYlIYySLtWyCFgBHvuM9vsJBUPeIcKD3Ta_IFoDbofzHbzqJ61wB2Ckqf_erpo08BqVxiT3ZxuRv4iIozNJxgXLHHWbDGVQ6wymsUhiTIGcNfJhrItHtsyKhVlpAnwtY-I9Jm0YkRNe6pGkHdrGyVFClMmV8-HkkFZq6VBHpPqkcK1hl_cMQdHMqEhySuw1oojOrTC-0jZNjuzSacJHXVmrpI4k7F3rDorlziflBpx00m88ox4lA6BAfmw'
+        state = 'b7062082-5493-409b-b51b-c7f788136a1c'
+
+        unsigned_params = {
+            'client_id': TEST_SETTINGS.esia_client_id,
+            'code': code,
+            'grant_type': 'authorization_code',
+            'redirect_uri': TEST_SETTINGS.redirect_uri,
+            'timestamp': expected_timestamp,
+            'token_type': 'Bearer',
+            'scope': TEST_SETTINGS.esia_scope,
+            'state': state,
+        }
+        signed_params = copy.copy(unsigned_params)
+        signed_params.update({'client_secret': 'SECRET'})
+
+        sign_params_mock.return_value = signed_params
+
+        esia_auth = EsiaAuth(TEST_SETTINGS)
+        parse_token_mock = create_autospec(esia_auth._parse_token)
+        esia_auth._parse_token = parse_token_mock
+        validate_token_mock = create_autospec(esia_auth._validate_token)
+        validate_token_mock.return_value = {'urn:esia:sbj': {'urn:esia:sbj:oid': expected_oid}}
+        esia_auth._validate_token = validate_token_mock
+
+        result = esia_auth.complete_authorization(code, state, validate_token=True)
+
+        self.assertIsInstance(result, EsiaInformationConnector)
+        self.assertEqual(result.oid, expected_oid)
+        self.assertEqual(result.token, expected_token)
+        self.assertEqual(result.settings, esia_auth.settings)
+
+        get_timestamp_mock.assert_called_once_with()
+        sign_params_mock.assert_called_once_with(SameDict(unsigned_params),
+                                                 certificate_file=TEST_SETTINGS.certificate_file,
+                                                 private_key_file=TEST_SETTINGS.private_key_file)
+
+        make_request_mock.assert_called_once_with(url="{0}{1}".format(TEST_SETTINGS.esia_service_url,
+                                                                      EsiaAuth._TOKEN_EXCHANGE_URL),
+                                                  method='POST',
+                                                  data=signed_params)
+        validate_token_mock.assert_called_once_with('TOKENDATA')
+        self.assertFalse(parse_token_mock.called)
+
+    def test_validate_token_no_key(self):
+
+        token = ''
+
+        settings = copy.copy(TEST_SETTINGS)
+        settings.esia_token_check_key = None
+        esia_auth = EsiaAuth(settings)
+
+        self.assertRaises(ValueError, esia_auth._validate_token, token)
+
+    def get_token_payload(self, **content):
+        timestamp_now = timegm(datetime.datetime.utcnow().utctimetuple())
+
+        payload = {
+            'amr': 'PWD',
+            'aud': 'TEST_CLIENT_ID',
+            'auth_time': timestamp_now - 2,
+            'exp': timestamp_now + 100,
+            'iat': timestamp_now,
+            'iss': 'http://esia.gosuslugi.ru/',
+            'nbf': 1447060287,
+            'sub': 1000323031,
+            'urn:esia:amd': 'PWD',
+            'urn:esia:sbj': {
+                'urn:esia:sbj:nam': 'OID.1000323031',
+                'urn:esia:sbj:oid': 1000323031,
+                'urn:esia:sbj:typ': 'P'
+            },
+            'urn:esia:sid': '5e17c68315126b257663b10aef5cc9e5c3bf7ae5a903bf91bd3f34b8373ce4b9'
+        }
+        payload.update(content)
+        return payload
+
+    def test_validate_token_incorrect_issuer(self):
+
+        token_payload = self.get_token_payload(iss='https://ya.ru')
+
+        with open(TEST_SETTINGS.private_key_file, 'r') as f:
+            data = f.read()
+
+        token = jwt.encode(token_payload, key=data)
+
+        settings = copy.copy(TEST_SETTINGS)
+        settings.esia_token_check_key = settings.private_key_file
+        esia_auth = EsiaAuth(settings)
+
+        self.assertRaises(IncorrectMarkerError, esia_auth._validate_token, token)
+
+    def test_validate_token_incorrect_audience(self):
+
+        token_payload = self.get_token_payload(aud='BOO')
+
+        with open(TEST_SETTINGS.private_key_file, 'r') as f:
+            data = f.read()
+
+        token = jwt.encode(token_payload, key=data)
+
+        settings = copy.copy(TEST_SETTINGS)
+        settings.esia_token_check_key = settings.private_key_file
+        esia_auth = EsiaAuth(settings)
+
+        self.assertRaises(IncorrectMarkerError, esia_auth._validate_token, token)
+
+    def test_validate_token_ok(self):
+
+        token_payload = self.get_token_payload()
+
+        with open(TEST_SETTINGS.private_key_file, 'r') as f:
+            key_data = f.read()
+
+        token = jwt.encode(token_payload, key=key_data)
+
+        settings = copy.copy(TEST_SETTINGS)
+        settings.esia_token_check_key = settings.private_key_file
+        esia_auth = EsiaAuth(settings)
+
+        result = esia_auth._validate_token(token)
+
+        self.assertDictEqual(result, token_payload)
+
+
+class EsiaInformationConnectorTests(TestCase):
     def setUp(self):
         super().setUp()
         self.maxDiff = None
         self.simple_expected_result = {'result': 'result'}
         self.expected_simple_endpoint = '/some/endpoint'
 
-        self.connector = EsiaPersonInformationConnector(access_token='', oid=1, settings=TEST_SETTINGS)
+        self.connector = EsiaInformationConnector(access_token='', oid=1, settings=TEST_SETTINGS)
 
     @httpretty.activate
     def test_get_person_main_info(self):

@@ -20,11 +20,9 @@ Structure
 ESIA-Connector library contains next classes:
 
 - ESIAAuth - class for generating url for user authentication at esia portal and handling redirected
-authentication request (handler exchanges request data for ESIA access token).
+authentication request (handler exchanges request data for ESIA access token and returns EsiaInformatioConnector instance).
 
-- EsiaInformationConnectorBase - base class for using ESIA REST-based information services.
-
-- EsiaPersonInformationConnector - class for fetching user personal information using obtained token
+- EsiaInformationConnector - class for fetching information from ESIA (at the moment only physical person endpoints have wrappers).
 
 
 Installation
@@ -43,7 +41,7 @@ Documentation
 For more information see examples/flask_app.py - full featured integration example built on top flask
 web framework. To run example flask app without library install make next steps:
 
-1) Generate you key and certificate and replace with em files in examples/res/. Create your system at ESIA and upload you certificate to ESIA server. Modify examples/flask_app.py - specify your system id as esia_client_id.
+1) Generate you key and certificate and place them in examples/res/ as test.key and test.crt. Create your system at ESIA and upload you certificate to ESIA server. Request ESIA for their public key - it is needed for jwt token signature verification and save it as res/esia_pub.key (or you can disable this feature). Modify examples/flask_app.py - specify your system id as esia_client_id.
 
 2) Run in shell these commands:
 

@@ -1,7 +1,7 @@
 from distutils.core import setup
 
 
-install_requires = ['requests', 'pytz', 'PyJWT']
+install_requires = ['requests', 'pytz', 'PyJWT', 'cryptography']
 
 
 classes = """

@@ -1,13 +1,11 @@
-import json
 import uuid
 from urllib.parse import urlencode
 
 import jwt
-import requests
-from jwt.exceptions import ExpiredSignature, InvalidTokenError
+from jwt.exceptions import InvalidTokenError
 
-from esia_connector.exceptions import IncorrectJsonError, HttpError, IncorrectMarkerError
-from esia_connector.utils import get_timestamp, sign_params
+from esia_connector.exceptions import IncorrectMarkerError
+from esia_connector.utils import get_timestamp, sign_params, make_request
 
 
 class EsiaSettings:
@@ -21,7 +19,7 @@ class EsiaSettings:
         :param str private_key_file: path to client system private key
         :param str esia_service_url: url of ESIA service
         :param str esia_scope: scopes keywords in single string, divided with space.
-        :param str esia_token_check_key: path to ESIA key to verify access token with
+        :param str or None esia_token_check_key: path to ESIA key to verify access token with
         """
         self.esia_client_id = esia_client_id
         self.redirect_uri = redirect_uri
@@ -68,22 +66,24 @@ class EsiaAuth:
                              certificate_file=self.settings.certificate_file,
                              private_key_file=self.settings.private_key_file)
 
-        params = urlencode(sorted(params.items()))
+        params = urlencode(sorted(params.items()))  # sorted needed to make uri deterministic for tests.
 
         return '{base_url}{auth_url}?{params}'.format(base_url=self.settings.esia_service_url,
                                                       auth_url=self._AUTHORIZATION_URL,
                                                       params=params)
 
-    def complete_authorization(self, code, state, validate_token=False):
+    def complete_authorization(self, code, state, validate_token=True):
         """
-        Exchanges received code and state to access token, extracts ESIA user id from token
-        and returns ESIA user id and token.
+        Exchanges received code and state to access token, validates token (optionally), extracts ESIA user id from
+        token and returns ESIA user id and token.
         :type code: str
         :type state: str
+        :param boolean validate_token: perform token validation
 `       :returns: (user_id, access_token,)
         :rtype: (int, str,)
         :raises IncorrectJsonError: if response contains invalid json body
         :raises HttpError: if response status code is not 2XX
+        :raises IncorrectMarkerError: if validate_token set to True and received token cannot be validated
         """
         params = {
             'client_id': self.settings.esia_client_id,
@@ -103,22 +103,18 @@ class EsiaAuth:
         url = '{base_url}{token_url}'.format(base_url=self.settings.esia_service_url,
                                              token_url=self._TOKEN_EXCHANGE_URL)
 
-        try:
-            response = requests.post(url, data=params)
-            response.raise_for_status()
-            response_json = json.loads(response.content.decode())
-        except requests.HTTPError as e:
-            raise HttpError(e)
-        except ValueError as e:
-            raise IncorrectJsonError(e)
+        response_json = make_request(url=url, method='POST', data=params)
 
         id_token = response_json['id_token']
-        parsed_token = self._parse_token(id_token)
+
         if validate_token:
-            self._validate_token(id_token)
-        # TODO: validate token
-        user_id = self._get_user_id(parsed_token)
-        return user_id, response_json['access_token'],
+            payload = self._validate_token(id_token)
+        else:
+            payload = self._parse_token(id_token)
+
+        return EsiaInformationConnector(access_token=response_json['access_token'],
+                                        oid=self._get_user_id(payload),
+                                        settings=self.settings)
 
     @staticmethod
     def _parse_token(token):
@@ -128,11 +124,11 @@ class EsiaAuth:
         return jwt.decode(token, verify=False)
 
     @staticmethod
-    def _get_user_id(id_token):
+    def _get_user_id(payload):
         """
-        :param dict id_token: parsed token
+        :param dict payload: token payload
         """
-        return id_token.get('urn:esia:sbj', {}).get('urn:esia:sbj:oid')
+        return payload.get('urn:esia:sbj', {}).get('urn:esia:sbj:oid')
 
     def _validate_token(self, token):
         """
@@ -145,17 +141,17 @@ class EsiaAuth:
             data = f.read()
 
         try:
-            jwt.decode(token,
-                       key=data,
-                       audience=self.settings.esia_client_id,
-                       issuer=self._ESIA_ISSUER_NAME)
+            return jwt.decode(token,
+                              key=data,
+                              audience=self.settings.esia_client_id,
+                              issuer=self._ESIA_ISSUER_NAME)
         except InvalidTokenError as e:
             raise IncorrectMarkerError(e)
 
 
-class EsiaInformationConnectorBase:
+class EsiaInformationConnector:
     """
-    Base class for ESIA REST based connectors
+    Connector for fetching information from ESIA REST services.
     """
     def __init__(self, access_token, oid, settings):
         """
@@ -186,20 +182,8 @@ class EsiaInformationConnectorBase:
         else:
             headers['Accept'] = 'application/json'
 
-        try:
-            response = requests.get(endpoint_url, headers=headers)
-            response.raise_for_status()
-            return json.loads(response.content.decode())
-        except ValueError as e:
-            raise IncorrectJsonError(e)
-        except requests.HTTPError as e:
-            raise HttpError(e)
+        return make_request(url=endpoint_url, headers=headers)
 
-
-class EsiaPersonInformationConnector(EsiaInformationConnectorBase):
-    """
-    Connector for fetching physical person information from ESIA.
-    """
     def get_person_main_info(self, accept_schema=None):
         url = '{base}/prns/{oid}'.format(base=self._rest_base_url, oid=self.oid)
         return self.esia_request(endpoint_url=url, accept_schema=accept_schema)
