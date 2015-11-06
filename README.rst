@@ -20,7 +20,7 @@ Structure
 ESIA-Connector library contains next classes:
 
 - ESIAAuth - class for generating url for user authentication at esia portal and handling redirected
-redirected authentication request (handler exchanges request data for ESIA access token).
+authentication request (handler exchanges request data for ESIA access token).
 
 - EsiaInformationConnectorBase - base class for using ESIA REST-based information services.
 
@@ -34,7 +34,7 @@ To install ESIA-connector, simply:
 
 .. code-block:: bash
 
-    $ pip install git+https://github.com/saprun/esia-connector.git@master
+    $ pip install esia-connector
 
 
 Documentation
