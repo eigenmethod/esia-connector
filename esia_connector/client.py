@@ -2,26 +2,41 @@ import json
 import uuid
 from urllib.parse import urlencode
 
-import collections
 import jwt
 import requests
+from jwt.exceptions import ExpiredSignature, InvalidTokenError
 
-from esia_connector.exceptions import IncorrectJsonError, HttpError
+from esia_connector.exceptions import IncorrectJsonError, HttpError, IncorrectMarkerError
 from esia_connector.utils import get_timestamp, sign_params
 
 
-EsiaSettings = collections.namedtuple('EsiaSettings', ('esia_client_id',
-                                                       'redirect_uri',
-                                                       'certificate_file',
-                                                       'private_key_file',
-                                                       'esia_service_url',
-                                                       'esia_scope'))
+class EsiaSettings:
+    def __init__(self, esia_client_id, redirect_uri, certificate_file, private_key_file, esia_service_url, esia_scope,
+                 esia_token_check_key=None):
+        """
+        Esia settings class
+        :param str esia_client_id: client system id at ESIA
+        :param str redirect_uri: uri, where browser will be redirected after authorization
+        :param str certificate_file: path to client system certificate file
+        :param str private_key_file: path to client system private key
+        :param str esia_service_url: url of ESIA service
+        :param str esia_scope: scopes keywords in single string, divided with space.
+        :param str esia_token_check_key: path to ESIA key to verify access token with
+        """
+        self.esia_client_id = esia_client_id
+        self.redirect_uri = redirect_uri
+        self.certificate_file = certificate_file
+        self.private_key_file = private_key_file
+        self.esia_service_url = esia_service_url
+        self.esia_scope = esia_scope
+        self.esia_token_check_key = esia_token_check_key
 
 
 class EsiaAuth:
     """
     Esia authentication connector
     """
+    _ESIA_ISSUER_NAME = 'http://esia.gosuslugi.ru/'
     _AUTHORIZATION_URL = '/aas/oauth2/ac'
     _TOKEN_EXCHANGE_URL = '/aas/oauth2/te'
 
@@ -59,7 +74,7 @@ class EsiaAuth:
                                                       auth_url=self._AUTHORIZATION_URL,
                                                       params=params)
 
-    def complete_authorization(self, code, state):
+    def complete_authorization(self, code, state, validate_token=False):
         """
         Exchanges received code and state to access token, extracts ESIA user id from token
         and returns ESIA user id and token.
@@ -99,6 +114,8 @@ class EsiaAuth:
 
         id_token = response_json['id_token']
         parsed_token = self._parse_token(id_token)
+        if validate_token:
+            self._validate_token(id_token)
         # TODO: validate token
         user_id = self._get_user_id(parsed_token)
         return user_id, response_json['access_token'],
@@ -116,6 +133,24 @@ class EsiaAuth:
         :param dict id_token: parsed token
         """
         return id_token.get('urn:esia:sbj', {}).get('urn:esia:sbj:oid')
+
+    def _validate_token(self, token):
+        """
+        :param str token: token to validate
+        """
+        if self.settings.esia_token_check_key is None:
+            raise ValueError("To validate token you need to specify `esia_token_check_key` in settings!")
+
+        with open(self.settings.esia_token_check_key, 'r') as f:
+            data = f.read()
+
+        try:
+            jwt.decode(token,
+                       key=data,
+                       audience=self.settings.esia_client_id,
+                       issuer=self._ESIA_ISSUER_NAME)
+        except InvalidTokenError as e:
+            raise IncorrectMarkerError(e)
 
 
 class EsiaInformationConnectorBase:
