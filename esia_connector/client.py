@@ -75,12 +75,11 @@ class EsiaAuth:
     def complete_authorization(self, code, state, validate_token=True):
         """
         Exchanges received code and state to access token, validates token (optionally), extracts ESIA user id from
-        token and returns ESIA user id and token.
+        token and returns ESIAInformationConnector instance.
         :type code: str
         :type state: str
         :param boolean validate_token: perform token validation
-`       :returns: (user_id, access_token,)
-        :rtype: (int, str,)
+        :rtype: EsiaInformationConnector
         :raises IncorrectJsonError: if response contains invalid json body
         :raises HttpError: if response status code is not 2XX
         :raises IncorrectMarkerError: if validate_token set to True and received token cannot be validated
