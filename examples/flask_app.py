@@ -9,7 +9,7 @@ def get_test_file(name):
     return os.path.join(os.path.dirname(__file__), 'res', name)
 
 
-TEST_SETTINGS = EsiaSettings(esia_client_id='SEPCAT',
+TEST_SETTINGS = EsiaSettings(esia_client_id='YOUR SYSTEM ID',
                              redirect_uri='http://localhost:5000/info',
                              certificate_file=get_test_file('test.crt'),
                              private_key_file=get_test_file('test.key'),
@@ -26,10 +26,12 @@ assert os.path.exists(TEST_SETTINGS.esia_token_check_key), "Please place ESIA pu
 
 app = Flask(__name__)
 
+esia_auth = EsiaAuth(TEST_SETTINGS)
+
 
 @app.route("/")
 def hello():
-    url = EsiaAuth(TEST_SETTINGS).get_auth_url()
+    url = esia_auth.get_auth_url()
     return 'Start here: <a href="{0}">{0}</a>'.format(url)
 
 
@@ -37,7 +39,6 @@ def hello():
 def process():
     code = request.args.get('code')
     state = request.args.get('state')
-    esia_auth = EsiaAuth(TEST_SETTINGS)
     esia_connector = esia_auth.complete_authorization(code, state)
     inf = esia_connector.get_person_main_info()
     return "%s" % inf
