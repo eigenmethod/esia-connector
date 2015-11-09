@@ -20,7 +20,7 @@ Structure
 ESIA-Connector library contains next classes:
 
 - ESIAAuth - class for generating url for user authentication at esia portal and handling redirected
-authentication request (handler exchanges request data for ESIA access token and returns EsiaInformatioConnector instance).
+authentication request (handler exchanges request data for ESIA access token and returns EsiaInformationConnector instance).
 
 - EsiaInformationConnector - class for fetching information from ESIA (at the moment only physical person endpoints have wrappers).
 
