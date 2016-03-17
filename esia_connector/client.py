@@ -44,24 +44,24 @@ class EsiaAuth:
         """
         self.settings = settings
 
-    def get_auth_url(self, state=None):
+    def get_auth_url(self, state=None, redirect_uri=None):
         """
         Return url which end-user should visit to authorize at ESIA.
-        :param str or None state: identifier, will be returned as GET parameter in redirected request after auth..
+        :param str or None state: identifier, will be returned as GET parameter in redirected request after auth.
+        :param str or None redirect_uri: uri, where browser will be redirected after authorization.
         :return: url
         :rtype: str
         """
         params = {
             'client_id': self.settings.esia_client_id,
             'client_secret': '',
-            'redirect_uri': self.settings.redirect_uri,
+            'redirect_uri': redirect_uri or self.settings.redirect_uri,
             'scope': self.settings.esia_scope,
             'response_type': 'code',
             'state': state or str(uuid.uuid4()),
             'timestamp': get_timestamp(),
             'access_type': 'offline'
         }
-
         params = sign_params(params,
                              certificate_file=self.settings.certificate_file,
                              private_key_file=self.settings.private_key_file)
@@ -72,13 +72,14 @@ class EsiaAuth:
                                                       auth_url=self._AUTHORIZATION_URL,
                                                       params=params)
 
-    def complete_authorization(self, code, state, validate_token=True):
+    def complete_authorization(self, code, state, validate_token=True, redirect_uri=None):
         """
         Exchanges received code and state to access token, validates token (optionally), extracts ESIA user id from
         token and returns ESIAInformationConnector instance.
         :type code: str
         :type state: str
         :param boolean validate_token: perform token validation
+        :param str or None redirect_uri: uri, where browser will be redirected after authorization.
         :rtype: EsiaInformationConnector
         :raises IncorrectJsonError: if response contains invalid json body
         :raises HttpError: if response status code is not 2XX
@@ -88,7 +89,7 @@ class EsiaAuth:
             'client_id': self.settings.esia_client_id,
             'code': code,
             'grant_type': 'authorization_code',
-            'redirect_uri': self.settings.redirect_uri,
+            'redirect_uri': redirect_uri or self.settings.redirect_uri,
             'timestamp': get_timestamp(),
             'token_type': 'Bearer',
             'scope': self.settings.esia_scope,
