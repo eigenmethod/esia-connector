@@ -21,7 +21,7 @@ written in python 3.
 
 setup(
     name='esia-connector',
-    version='0.15',
+    version='0.16',
     description='ESIA integration library',
     long_description=long_description,
     author='SAPRUN Team',
