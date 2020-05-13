@@ -15,7 +15,7 @@ TEST_SETTINGS = EsiaSettings(esia_client_id='YOUR SYSTEM ID',
                              private_key_file=get_test_file('test.key'),
                              esia_token_check_key=get_test_file('esia_pub.key'),
                              esia_service_url='https://esia-portal1.test.gosuslugi.ru',
-                             esia_scope='openid http://esia.gosuslugi.ru/usr_inf')
+                             esia_scope='openid fullname id_doc')
 
 assert TEST_SETTINGS.esia_client_id != 'YOUR SYSTEM ID', "Please specify real system id!"
 
